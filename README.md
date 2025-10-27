@@ -470,32 +470,7 @@ ssh openstack
 
 ---
 
-## 4. FILES CONSOLIDATED
-
-### Merged Files
-- ✅ `terraform/network.tf` + `terraform/security.tf` + `terraform/compute.tf`
-  - **Result:** `terraform/infrastructure.tf` (single file, 7576 bytes)
-  - **Benefit:** Easier to review all infrastructure in one place
-
-### Files Removed (9 total)
-- ❌ `deploy.sh` - Old deployment script
-- ❌ `deploy-k8s-cluster.yml` - Duplicate
-- ❌ `deploy-complete-cluster.yml` - Duplicate Ansible wrapper
-- ❌ `deploy-full-stack.yml` - Duplicate
-- ❌ `k8s-deploy-cluster.yml` - Duplicate
-- ❌ `install-cilium.sh` - Old bash version
-- ❌ `installation-guide.md` - Outdated
-- ❌ `kubeadm-config.yaml` - Static file (using template)
-- ❌ `inventory.yml` - Static inventory (using dynamic)
-
-### Final File Count
-**Before consolidation:** ~35 files  
-**After consolidation:** ~26 files  
-**Reduction:** 26% fewer files
-
----
-
-## 5. EXECUTION SUMMARY
+## 4. EXECUTION SUMMARY
 
 ### Total Deployment Timeline
 
@@ -520,60 +495,45 @@ ssh openstack
 
 ---
 
-## 6. GIT REPOSITORY STRUCTURE
+## 5. GIT REPOSITORY STRUCTURE
 
-### What's Tracked in Git
+### Project Structure
 
 ```
 k8s-automation/
-├── .gitignore                          ✅ Tracked
-├── README.md                           ✅ Tracked (comprehensive docs)
-├── GIT-SETUP.md                        ✅ Tracked (this guide)
-├── deploy-complete.sh                  ✅ Tracked
-├── cluster-manager.sh                  ✅ Tracked
-├── ansible.cfg                         ✅ Tracked
-├── step-a-provision-infrastructure.yml ✅ Tracked
-├── step-b-kubernetes-init.yml          ✅ Tracked
-├── step-c-workers-join.yml             ✅ Tracked
-├── terraform/                          ✅ Tracked
+├── .gitignore                          
+├── README.md                           
+├── GIT-SETUP.md                        
+├── deploy-complete.sh                  
+├── cluster-manager.sh                  
+├── ansible.cfg                         
+├── step-a-provision-infrastructure.yml 
+├── step-b-kubernetes-init.yml          
+├── step-c-workers-join.yml             
+├── terraform/                          
 │   ├── provider.tf
 │   ├── variables.tf
-│   ├── infrastructure.tf               ✅ MERGED FILE
+│   ├── infrastructure.tf
 │   ├── outputs.tf
 │   ├── cloud-init.yaml
 │   └── inventory.tpl
-├── playbooks/                          ✅ Tracked
+├── playbooks/                          
 │   ├── common-setup.yml
 │   ├── master-init.yml
 │   ├── install-cilium.yml
 │   ├── workers-join.yml
 │   ├── verify-cluster.yml
 │   └── reset-cluster.yml
-├── scripts/                            ✅ Tracked
+├── scripts/                            
 │   ├── setup-openstack-environment.sh
 │   └── terraform-ops.sh
-└── config/                             ✅ Tracked (template only)
+└── config/                             
     └── kubeadm-config.yaml.j2
-```
-
-### What's Ignored (.gitignore)
-
-```
-terraform/.terraform/                   ❌ Ignored (Terraform cache)
-terraform/terraform.tfstate*            ❌ Ignored (state files)
-config/k8s-cluster-key.pem             ❌ Ignored (SSH private key)
-config/k8s-join-command                ❌ Ignored (join command)
-inventory-dynamic.yml                  ❌ Ignored (generated)
-DEPLOYMENT-INFO.txt                    ❌ Ignored (deployment info)
-backups/                               ❌ Ignored (backup dirs)
-*.retry                                ❌ Ignored (Ansible retry)
-.vscode/                               ❌ Ignored (IDE settings)
-*.log                                  ❌ Ignored (log files)
 ```
 
 ---
 
-## 7. QUICK REFERENCE
+## 6. QUICK REFERENCE
 
 ### One Command to Deploy Everything
 ```bash
