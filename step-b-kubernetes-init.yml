@@ -1,0 +1,239 @@
+---
+# Step B: Kubernetes Foundation Setup
+# Common setup on all nodes + Master initialization
+
+- name: Step B - Kubernetes Foundation Setup
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Display Step B banner
+      debug:
+        msg: |
+          ================================================
+          STEP B: Kubernetes Foundation Setup
+          ================================================
+          Phase 1: Common setup on all nodes
+          Phase 2: Initialize master node
+          Phase 3: Install Cilium CNI
+          ================================================
+
+    - name: Verify inventory exists
+      stat:
+        path: "{{ playbook_dir }}/inventory-dynamic.yml"
+      register: inventory_check
+
+    - name: Fail if no inventory
+      fail:
+        msg: "Dynamic inventory not found. Please run Step A first."
+      when: not inventory_check.stat.exists
+
+# Phase 1: Common Setup on All Nodes
+- name: Phase 1 - Common Kubernetes Setup
+  hosts: all
+  become: yes
+  gather_facts: yes
+  tasks:
+    - name: Display phase message
+      debug:
+        msg: "Setting up {{ inventory_hostname }} ({{ private_ip }})"
+
+    - name: Disable swap permanently
+      block:
+        - name: Turn off swap if enabled
+          command: swapoff -a
+          when: (ansible_swaptotal_mb | default(0) | int) > 0
+
+        - name: Remove swap entries from fstab
+          lineinfile:
+            path: /etc/fstab
+            regexp: "\\sswap\\s"
+            state: absent
+            backup: yes
+
+        - name: Remove swap file if exists
+          file:
+            path: /swap.img
+            state: absent
+
+        - name: Reboot after disabling swap
+          reboot:
+            msg: "Reboot for swap disable"
+            reboot_timeout: 600
+
+    - name: Load required kernel modules
+      block:
+        - name: Load overlay module
+          modprobe:
+            name: overlay
+            state: present
+
+        - name: Load br_netfilter module
+          modprobe:
+            name: br_netfilter
+            state: present
+
+        - name: Create modules-load configuration
+          copy:
+            dest: /etc/modules-load.d/kubernetes-cri.conf
+            content: |
+              overlay
+              br_netfilter
+
+        - name: Create sysctl configuration
+          copy:
+            dest: /etc/sysctl.d/99-kubernetes-cri.conf
+            content: |
+              net.bridge.bridge-nf-call-ip6tables = 1
+              net.bridge.bridge-nf-call-iptables = 1
+              net.ipv4.ip_forward = 1
+
+        - name: Apply sysctl settings
+          command: sysctl --system
+
+    - name: Install containerd
+      block:
+        - name: Install prerequisites
+          apt:
+            name:
+              - curl
+              - gnupg2
+              - software-properties-common
+              - apt-transport-https
+              - ca-certificates
+            state: present
+            update_cache: yes
+
+        - name: Add Docker GPG key
+          shell: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/containerd.gpg
+          args:
+            creates: /etc/apt/trusted.gpg.d/containerd.gpg
+
+        - name: Add Docker repository
+          apt_repository:
+            repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+            state: present
+
+        - name: Install containerd.io
+          apt:
+            name: containerd.io
+            state: present
+            update_cache: yes
+
+        - name: Configure containerd
+          shell: |
+            mkdir -p /etc/containerd
+            containerd config default | tee /etc/containerd/config.toml >/dev/null
+            sed -i 's/SystemdCgroup \= false/SystemdCgroup \= true/g' /etc/containerd/config.toml
+
+        - name: Restart containerd
+          systemd:
+            name: containerd
+            state: restarted
+            enabled: yes
+
+    - name: Configure hosts file
+      block:
+        - name: Add master to hosts
+          lineinfile:
+            path: /etc/hosts
+            line: "{{ hostvars['k8s-master']['private_ip'] }} k8s-master"
+          when: inventory_hostname != 'k8s-master'
+
+        - name: Add workers to hosts
+          lineinfile:
+            path: /etc/hosts
+            line: "{{ hostvars[item]['private_ip'] }} {{ item }}"
+          loop: "{{ groups['k8s_workers'] }}"
+          when: inventory_hostname != item
+
+    - name: Install Kubernetes components
+      block:
+        - name: Create keyrings directory
+          file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Add Kubernetes apt key
+          shell: curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.33/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+          args:
+            creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+        - name: Add Kubernetes repository
+          copy:
+            dest: /etc/apt/sources.list.d/kubernetes.list
+            content: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.33/deb/ /"
+
+        - name: Install kubeadm, kubelet, kubectl
+          apt:
+            name:
+              - kubelet
+              - kubeadm
+              - kubectl
+            state: present
+            update_cache: yes
+
+        - name: Hold Kubernetes packages
+          shell: apt-mark hold kubelet kubeadm kubectl
+
+        - name: Enable kubelet
+          systemd:
+            name: kubelet
+            enabled: yes
+            state: started
+
+- name: Pause between phases
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Wait for system stability
+      pause:
+        seconds: 30
+        prompt: "Common setup complete. Waiting before master init..."
+
+# Phase 2: Master Initialization
+- import_playbook: playbooks/master-init.yml
+
+# Phase 3: Install Cilium
+- import_playbook: playbooks/install-cilium.yml
+
+# Final checks
+- name: Step B Completion Checks
+  hosts: k8s_master
+  become: yes
+  tasks:
+    - name: Wait for API server
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      command: kubectl get --raw /readyz
+      register: api_ready
+      retries: 30
+      delay: 10
+      until: api_ready.rc == 0
+
+    - name: Check master node status
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      command: kubectl get nodes
+      register: nodes_status
+
+    - name: Display nodes
+      debug:
+        var: nodes_status.stdout_lines
+
+- name: Step B completion message
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Success message
+      debug:
+        msg: |
+          ================================================
+          ✅ STEP B COMPLETED SUCCESSFULLY
+          ================================================
+          Master node is initialized and running!
+          Cilium CNI is installed!
+          
+          Next step: Run Step C
+          ansible-playbook -i inventory-dynamic.yml step-c-workers-join.yml
+          ================================================

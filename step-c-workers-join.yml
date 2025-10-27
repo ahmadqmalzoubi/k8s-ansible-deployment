@@ -1,0 +1,183 @@
+---
+# Step C: Complete Cluster Setup
+# Join workers and verify full cluster
+
+- name: Step C - Complete Cluster Setup
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Display Step C banner
+      debug:
+        msg: |
+          ================================================
+          STEP C: Complete Cluster Setup
+          ================================================
+          Phase 1: Join worker nodes
+          Phase 2: Verify cluster health
+          ================================================
+
+    - name: Verify inventory exists
+      stat:
+        path: "{{ playbook_dir }}/inventory-dynamic.yml"
+      register: inventory_check
+
+    - name: Fail if no inventory
+      fail:
+        msg: "Dynamic inventory not found. Please run Step A first."
+      when: not inventory_check.stat.exists
+
+# Phase 1: Join Workers
+- import_playbook: playbooks/workers-join.yml
+
+# Phase 2: Wait for cluster readiness
+- name: Wait for Cluster Readiness
+  hosts: k8s_master
+  become: yes
+  tasks:
+    - name: Wait for all nodes to be Ready
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      command:
+        argv:
+          - kubectl
+          - wait
+          - --for=condition=Ready
+          - node
+          - --all
+          - --timeout=10m
+      register: nodes_ready
+
+    - name: Display nodes ready status
+      debug:
+        var: nodes_ready.stdout
+
+    - name: Wait for Cilium DaemonSet
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      command:
+        argv:
+          - kubectl
+          - -n
+          - kube-system
+          - rollout
+          - status
+          - ds/cilium
+          - --timeout=10m
+      register: cilium_ready
+
+    - name: Display Cilium status
+      debug:
+        var: cilium_ready.stdout
+
+- name: Pause before verification
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Wait for cluster stabilization
+      pause:
+        seconds: 10
+        prompt: "Waiting for cluster stabilization..."
+
+# Phase 3: Verify Cluster
+- import_playbook: playbooks/verify-cluster.yml
+
+# Final Summary
+- name: Step C Completion and Cluster Summary
+  hosts: k8s_master
+  become: no
+  vars:
+    kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
+  tasks:
+    - name: Get cluster info
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      command: kubectl cluster-info
+      register: cluster_info
+
+    - name: Get all nodes
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      command: kubectl get nodes -o wide
+      register: all_nodes
+
+    - name: Get all pods
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      command: kubectl get pods -A
+      register: all_pods
+
+    - name: Get Cilium status
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      command: cilium status
+      register: cilium_status_final
+      become: yes
+      failed_when: false
+
+    - name: Display final cluster summary
+      debug:
+        msg: |
+          ================================================
+          CLUSTER INFORMATION
+          ================================================
+          {{ cluster_info.stdout }}
+          
+          ================================================
+          ALL NODES
+          ================================================
+          {{ all_nodes.stdout }}
+          
+          ================================================
+          ALL PODS
+          ================================================
+          {{ all_pods.stdout }}
+
+- name: Get connection details from Terraform
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Get master public IP
+      shell: cd terraform && terraform output -raw master_public_ip
+      register: master_ip
+      args:
+        chdir: "{{ playbook_dir }}"
+
+    - name: Get SSH key path
+      shell: cd terraform && terraform output -raw ssh_private_key_path
+      register: ssh_key
+      args:
+        chdir: "{{ playbook_dir }}"
+
+    - name: Final success message
+      debug:
+        msg: |
+          ================================================
+          ✅ STEP C COMPLETED - CLUSTER FULLY DEPLOYED!
+          ================================================
+          
+          Your Kubernetes cluster is ready to use!
+          
+          Access Methods:
+          ---------------
+          1. SSH to master:
+             ssh -i {{ ssh_key.stdout }} ubuntu@{{ master_ip.stdout }}
+          
+          2. Use cluster manager:
+             ./cluster-manager.sh ssh-master
+          
+          3. Download kubeconfig:
+             ./cluster-manager.sh kubeconfig
+             export KUBECONFIG=~/.kube/k8s-cluster-config
+             kubectl get nodes
+          
+          Cluster Details:
+          ----------------
+          Master IP: {{ master_ip.stdout }}
+          SSH Key: {{ ssh_key.stdout }}
+          Nodes: 3 (1 master + 2 workers)
+          CNI: Cilium
+          
+          To destroy the cluster:
+          ./cluster-manager.sh destroy
+          
+          ================================================

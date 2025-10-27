@@ -1,0 +1,42 @@
+# Terraform files
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/*.tfstate*
+.terraform*
+
+# Generated SSH keys and secrets
+config/k8s-cluster-key.pem
+config/k8s-join-command
+
+# Generated inventory
+inventory-dynamic.yml
+
+# Deployment info
+DEPLOYMENT-INFO.txt
+
+# Backup directories
+backups/
+
+# Ansible retry files
+*.retry
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

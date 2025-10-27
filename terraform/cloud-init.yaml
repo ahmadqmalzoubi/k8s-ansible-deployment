@@ -1,0 +1,36 @@
+# Cloud-init configuration for VM initialization
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - wget
+  - git
+  - unzip
+  - htop
+
+# Create ssh user if it doesn't exist
+users:
+  - name: ${ssh_user}
+    gecos: SSH User
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys: []
+
+# Enable password authentication temporarily (will be disabled after SSH key setup)
+ssh_pwauth: false
+
+# Disable firewall for cluster communication
+runcmd:
+  - systemctl stop ufw
+  - systemctl disable ufw
+  - echo "VM initialization completed" > /tmp/cloud-init-complete
+
+# Set timezone
+timezone: UTC
+
+# Enable services
+systemctl:
+  enable:
+    - ssh

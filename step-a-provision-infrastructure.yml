@@ -1,0 +1,164 @@
+---
+# Step A: Infrastructure Provisioning
+# Creates VMs, networking, and validates SSH access
+
+- name: Step A - Provision Infrastructure with Terraform
+  hosts: localhost
+  gather_facts: no
+  vars:
+    script_dir: "{{ playbook_dir }}/scripts"
+    terraform_dir: "{{ playbook_dir }}/terraform"
+    
+  tasks:
+    - name: Display Step A banner
+      debug:
+        msg: |
+          ================================================
+          STEP A: Infrastructure Provisioning
+          ================================================
+          Creating:
+          - Network and Router
+          - Security Groups
+          - 3 VMs (1 master + 2 workers)
+          - Floating IPs
+          - SSH Keypairs
+          ================================================
+
+    - name: Check OpenStack authentication
+      command: openstack --insecure token issue
+      register: openstack_auth_check
+      failed_when: false
+      changed_when: false
+
+    - name: Fail if not authenticated
+      fail:
+        msg: "Please source openrc-learning-admin: source ~/openrc-learning-admin"
+      when: openstack_auth_check.rc != 0
+
+    - name: Initialize Terraform
+      command: "{{ script_dir }}/terraform-ops.sh init"
+      register: terraform_init
+
+    - name: Display Terraform init output
+      debug:
+        var: terraform_init.stdout_lines
+
+    - name: Plan Terraform changes
+      command: "{{ script_dir }}/terraform-ops.sh plan"
+      register: terraform_plan
+
+    - name: Display Terraform plan
+      debug:
+        var: terraform_plan.stdout_lines
+
+    - name: Pause before applying
+      pause:
+        prompt: "Press Enter to apply Terraform changes, or Ctrl+C to cancel"
+
+    - name: Apply Terraform configuration
+      command: "{{ script_dir }}/terraform-ops.sh apply"
+      register: terraform_apply
+
+    - name: Display Terraform apply output
+      debug:
+        var: terraform_apply.stdout_lines
+
+    - name: Get VM connection details
+      command: "{{ script_dir }}/terraform-ops.sh output"
+      register: terraform_outputs
+      args:
+        chdir: "{{ terraform_dir }}"
+
+    - name: Display connection details
+      debug:
+        var: terraform_outputs.stdout_lines
+
+    - name: Verify dynamic inventory was created
+      stat:
+        path: "{{ playbook_dir }}/inventory-dynamic.yml"
+      register: inventory_file
+
+    - name: Display inventory location
+      debug:
+        msg: "✅ Dynamic inventory created: {{ playbook_dir }}/inventory-dynamic.yml"
+      when: inventory_file.stat.exists
+
+    - name: Verify SSH private key exists
+      stat:
+        path: "{{ playbook_dir }}/config/k8s-cluster-key.pem"
+      register: ssh_key_file
+
+    - name: Fail if SSH key not found
+      fail:
+        msg: "SSH private key not found at {{ playbook_dir }}/config/k8s-cluster-key.pem"
+      when: not ssh_key_file.stat.exists
+
+    - name: Verify SSH key permissions
+      file:
+        path: "{{ playbook_dir }}/config/k8s-cluster-key.pem"
+        mode: '0600'
+      when: ssh_key_file.stat.exists
+
+    - name: Display SSH key info
+      debug:
+        msg: "✅ SSH private key ready: {{ playbook_dir }}/config/k8s-cluster-key.pem"
+
+    - name: Check if route to floating IP network exists
+      shell: ip route | grep "172.29.248.0/22"
+      register: route_check
+      failed_when: false
+      changed_when: false
+
+    - name: Add route to floating IP network (if needed)
+      become: yes
+      command: ip route add 172.29.248.0/22 via 172.16.1.4 dev enp1s0
+      when: route_check.rc != 0
+      register: route_add
+      failed_when: false
+      changed_when: route_add.rc == 0
+
+    - name: Display route status
+      debug:
+        msg: "{{ '✅ Route to floating IP network configured' if (route_add is changed and route_add.rc == 0) or route_check.rc == 0 else '⚠️  Route configuration skipped (may need manual setup or sudo password)' }}"
+
+    - name: Wait for VMs to be ready for SSH
+      pause:
+        seconds: 30
+
+    - name: Test SSH connectivity to all VMs
+      command: ansible all -i inventory-dynamic.yml -m ping
+      args:
+        chdir: "{{ playbook_dir }}"
+      register: ssh_test
+      retries: 10
+      delay: 30
+      until: ssh_test.rc == 0
+      failed_when: false
+
+    - name: Display SSH test results
+      debug:
+        msg: "{{ '✅ SSH connectivity verified to all VMs' if ssh_test.rc == 0 else '⚠️  SSH test incomplete, but continuing. VMs may still be initializing.' }}"
+
+    - name: Continue if SSH failed
+      debug:
+        msg: "Note: If SSH test failed, it will be retried by subsequent steps"
+      when: ssh_test.rc != 0
+
+    - name: Extract master IP
+      set_fact:
+        master_ip: "{{ terraform_outputs.stdout | regex_search('master_public_ip = \"([^\"]+)\"', '\\1') | default(['N/A']) | first }}"
+
+    - name: Step A completion message
+      debug:
+        msg: |
+          ================================================
+          ✅ STEP A COMPLETED SUCCESSFULLY
+          ================================================
+          Infrastructure is provisioned and accessible!
+          
+          Master IP: {{ master_ip }}
+          Check inventory-dynamic.yml for all IPs
+          
+          Next step: Run Step B
+          ansible-playbook -i inventory-dynamic.yml step-b-kubernetes-init.yml
+          ================================================

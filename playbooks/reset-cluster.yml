@@ -1,0 +1,55 @@
+---
+- name: Reset Kubernetes on all nodes (clean start)
+  hosts: all
+  become: yes
+  tasks:
+    - name: Stop kubelet if present
+      systemd:
+        name: kubelet
+        state: stopped
+      ignore_errors: yes
+
+    - name: kubeadm reset (ignore errors if not installed)
+      command: kubeadm reset -f
+      ignore_errors: yes
+
+    - name: Remove CNI config
+      file:
+        path: /etc/cni/net.d
+        state: absent
+
+    - name: Remove CNI state dir
+      file:
+        path: /var/lib/cni
+        state: absent
+
+    - name: Recreate CNI dirs
+      file:
+        path: /etc/cni/net.d
+        state: directory
+        mode: '0755'
+
+    - name: Flush iptables kube chains (best-effort)
+      shell: |
+        iptables-save | grep -E 'KUBE|CALI' || true
+        iptables -F || true
+        iptables -t nat -F || true
+        iptables -t mangle -F || true
+        iptables -X || true
+        iptables -t nat -X || true
+        iptables -t mangle -X || true
+      args:
+        executable: /bin/bash
+      ignore_errors: yes
+
+    - name: Restart containerd
+      systemd:
+        name: containerd
+        state: restarted
+        enabled: yes
+
+    - name: Ensure kube directories clean
+      file:
+        path: /etc/kubernetes
+        state: absent
+      ignore_errors: yes

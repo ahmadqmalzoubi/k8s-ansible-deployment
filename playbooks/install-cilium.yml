@@ -1,0 +1,72 @@
+---
+- name: Install Cilium CNI
+  hosts: k8s_master
+  become: yes
+  vars:
+    kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
+    cilium_version: "1.16.4"
+  tasks:
+    - name: Check if Cilium CLI is installed
+      command: which cilium
+      register: cilium_cli_check
+      failed_when: false
+      changed_when: false
+
+    - name: Download and install Cilium CLI
+      block:
+        - name: Create temporary directory
+          tempfile:
+            state: directory
+            suffix: cilium
+          register: cilium_temp_dir
+
+        - name: Download Cilium CLI
+          get_url:
+            url: "https://github.com/cilium/cilium-cli/releases/latest/download/cilium-linux-amd64.tar.gz"
+            dest: "{{ cilium_temp_dir.path }}/cilium-linux-amd64.tar.gz"
+            mode: '0644'
+
+        - name: Extract Cilium CLI
+          unarchive:
+            src: "{{ cilium_temp_dir.path }}/cilium-linux-amd64.tar.gz"
+            dest: "{{ cilium_temp_dir.path }}"
+            remote_src: yes
+
+        - name: Install Cilium CLI
+          copy:
+            src: "{{ cilium_temp_dir.path }}/cilium"
+            dest: /usr/local/bin/cilium
+            mode: '0755'
+            remote_src: yes
+
+        - name: Clean up temporary directory
+          file:
+            path: "{{ cilium_temp_dir.path }}"
+            state: absent
+      when: cilium_cli_check.rc != 0
+
+    - name: Install Cilium using CLI
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      command: cilium install --version {{ cilium_version }}
+      become_user: "{{ ansible_user }}"
+      register: cilium_install
+      changed_when: "'✅ Cilium was successfully installed' in cilium_install.stdout"
+
+    - name: Display Cilium installation output
+      debug:
+        var: cilium_install.stdout_lines
+
+    - name: Wait for Cilium to be ready
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      command: cilium status --wait
+      become_user: "{{ ansible_user }}"
+      register: cilium_status
+      retries: 30
+      delay: 10
+      until: cilium_status.rc == 0
+
+    - name: Display Cilium status
+      debug:
+        var: cilium_status.stdout_lines

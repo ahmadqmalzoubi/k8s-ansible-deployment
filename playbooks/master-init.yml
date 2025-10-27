@@ -1,0 +1,56 @@
+---
+- name: Initialize Kubernetes Master Node
+  hosts: k8s_master
+  become: yes
+  vars:
+    kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
+  tasks:
+    - name: Generate kubeadm configuration
+      template:
+        src: ../config/kubeadm-config.yaml.j2
+        dest: /tmp/kubeadm-config.yaml
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Initialize Kubernetes cluster using kubeadm
+      command: kubeadm init --config /tmp/kubeadm-config.yaml
+      args:
+        creates: /etc/kubernetes/admin.conf
+      register: kubeadm_output
+
+    - name: Display kubeadm output
+      debug:
+        var: kubeadm_output.stdout_lines
+
+    - name: Create .kube directory for user
+      file:
+        path: "/home/{{ ansible_user }}/.kube"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+      become: no
+
+    - name: Copy admin.conf to user's kubeconfig
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: "{{ kubeconfig_path }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0644'
+        remote_src: yes
+
+    - name: Generate and save join command for workers
+      shell: kubeadm token create --print-join-command | tee /tmp/k8s-join-command
+      register: join_command
+
+    - name: Display join command
+      debug:
+        msg: "Worker nodes can join using: {{ join_command.stdout }}"
+
+    - name: Save join command locally for workers
+      fetch:
+        src: /tmp/k8s-join-command
+        dest: "{{ playbook_dir }}/../config/k8s-join-command"
+        flat: yes

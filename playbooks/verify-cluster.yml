@@ -1,0 +1,71 @@
+---
+- name: Verify Kubernetes Cluster Health
+  hosts: k8s_master
+  become: no
+  vars:
+    kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
+  tasks:
+    - name: Check cluster nodes status
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      command:
+        argv:
+          - kubectl
+          - get
+          - nodes
+          - -o
+          - wide
+      register: nodes_status
+
+    - name: Display nodes status
+      debug:
+        var: nodes_status.stdout_lines
+
+    - name: Count total and ready nodes
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      shell: |
+        OUT="$(kubectl get nodes --no-headers)"
+        TOTAL=$(printf "%s\n" "$OUT" | wc -l)
+        READY=$(printf "%s\n" "$OUT" | awk '{ if ($2 ~ /^Ready(,|$)/) r++ } END { print r+0 }')
+        printf "TOTAL:%s,READY:%s" "$TOTAL" "$READY"
+      register: node_counts
+      changed_when: false
+
+    - name: Check system pods status
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+      command:
+        argv:
+          - kubectl
+          - get
+          - pods
+          - -n
+          - kube-system
+      register: system_pods
+
+    - name: Display system pods status
+      debug:
+        var: system_pods.stdout_lines
+
+    - name: Cluster health summary
+      debug:
+        msg: |
+          ===== CLUSTER HEALTH SUMMARY =====
+          Node counts: {{ node_counts.stdout }}
+          Master node is operational and API server is accessible
+
+    - name: Check if join command is available
+      stat:
+        path: /tmp/k8s-join-command
+      register: join_file
+
+    - name: Display join command status
+      debug:
+        msg: "✅ Join command is ready for worker nodes"
+      when: join_file.stat.exists
+
+    - name: Warning if no join command
+      debug:
+        msg: "⚠️ No join command found"
+      when: not join_file.stat.exists

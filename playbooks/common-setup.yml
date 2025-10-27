@@ -1,0 +1,170 @@
+---
+- name: Common Kubernetes Setup for All Nodes
+  hosts: all
+  become: yes
+  tasks:
+    - name: Disable swap permanently
+      block:
+        - name: Turn off swap if enabled
+          command: swapoff -a
+          when: (ansible_swaptotal_mb | default(0) | int) > 0
+
+        - name: Remove swap entries from fstab
+          lineinfile:
+            path: /etc/fstab
+            regexp: "\\sswap\\s"
+            state: absent
+            backup: yes
+
+        - name: Remove swap file if exists
+          file:
+            path: /swap.img
+            state: absent
+
+        - name: Reboot after disabling swap (per guide)
+          reboot:
+            msg: "Reboot initiated by Ansible after disabling swap per K8s guide."
+            reboot_timeout: 600
+
+    - name: Load required kernel modules and sysctl
+      block:
+        - name: Load overlay module
+          modprobe:
+            name: overlay
+            state: present
+
+        - name: Load br_netfilter module
+          modprobe:
+            name: br_netfilter
+            state: present
+
+        - name: Create modules-load configuration for kubernetes
+          copy:
+            dest: /etc/modules-load.d/kubernetes-cri.conf
+            content: |
+              overlay
+              br_netfilter
+
+        - name: Create sysctl configuration for kubernetes
+          copy:
+            dest: /etc/sysctl.d/99-kubernetes-cri.conf
+            content: |
+              net.bridge.bridge-nf-call-ip6tables = 1
+              net.bridge.bridge-nf-call-iptables = 1
+              net.ipv4.ip_forward = 1
+
+        - name: Apply sysctl settings
+          command: sysctl --system
+
+    - name: Install and configure containerd (per guide)
+      block:
+        - name: Install prerequisite packages
+          apt:
+            name:
+              - curl
+              - gnupg2
+              - software-properties-common
+              - apt-transport-https
+              - ca-certificates
+            state: present
+            update_cache: yes
+
+        - name: Add Docker GPG key for containerd
+          shell: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/containerd.gpg
+          args:
+            creates: /etc/apt/trusted.gpg.d/containerd.gpg
+
+        - name: Add Docker repository for containerd
+          apt_repository:
+            repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+            state: present
+
+        - name: Update apt and install containerd.io
+          apt:
+            name: containerd.io
+            state: present
+            update_cache: yes
+
+        - name: Ensure containerd config directory exists
+          file:
+            path: /etc/containerd
+            state: directory
+            mode: "0755"
+
+        - name: Check current containerd config.toml
+          stat:
+            path: /etc/containerd/config.toml
+          register: containerd_config_stat
+
+        - name: Generate default containerd configuration (capture)
+          shell: containerd config default | sudo tee /etc/containerd/config.toml >/dev/null 2>&1
+
+        - name: Ensure SystemdCgroup = true (toggle if set to false)
+          shell: sudo sed -i 's/SystemdCgroup \= false/SystemdCgroup \= true/g' /etc/containerd/config.toml
+
+        - name: Restart and enable containerd
+          systemd:
+            name: containerd
+            state: restarted
+            enabled: yes
+
+    - name: Ensure name resolution for control-plane endpoint
+      block:
+        - name: Add k8s-master to hosts
+          lineinfile:
+            path: /etc/hosts
+            line: "{{ hostvars['k8s-master']['private_ip'] }} k8s-master"
+          when: inventory_hostname != 'k8s-master'
+
+        - name: Add worker nodes to hosts
+          lineinfile:
+            path: /etc/hosts
+            line: "{{ hostvars[item]['private_ip'] }} {{ item }}"
+          loop: "{{ groups['k8s_workers'] }}"
+          when: inventory_hostname != item
+
+    - name: Install Kubernetes components (kubeadm, kubelet, kubectl)
+      block:
+        - name: Install prerequisites for Kubernetes repo
+          apt:
+            name:
+              - apt-transport-https
+              - ca-certificates
+              - curl
+              - gpg
+            state: present
+            update_cache: yes
+
+        - name: Create keyrings directory
+          file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Add Kubernetes apt key
+          shell: curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.33/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+          args:
+            creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+        - name: Configure Kubernetes apt repository
+          copy:
+            dest: /etc/apt/sources.list.d/kubernetes.list
+            content: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.33/deb/ /"
+
+        - name: Install kubelet, kubeadm, kubectl
+          apt:
+            name:
+              - kubelet
+              - kubeadm
+              - kubectl
+            state: present
+            update_cache: yes
+
+        - name: Hold Kubernetes packages
+          shell: apt-mark hold kubelet kubeadm kubectl
+
+        - name: Enable and start kubelet
+          systemd:
+            name: kubelet
+            enabled: yes
+            state: started
