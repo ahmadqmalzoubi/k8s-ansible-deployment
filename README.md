@@ -75,6 +75,26 @@ source ~/openrc-learning-admin
 
 ---
 
+## 📚 References and Alternatives
+
+### Official Documentation
+
+This automation follows the official Kubernetes deployment guide:
+- [Kubernetes v1.33 Documentation](https://v1-33.docs.kubernetes.io/docs/home/)
+
+### Alternative Learning Environments
+
+If you're looking for a simpler single-node setup for learning, consider these lightweight alternatives:
+- [kind](https://kind.sigs.k8s.io/) - Kubernetes in Docker
+- [minikube](https://minikube.sigs.k8s.io/) - Local Kubernetes clusters
+- [MicroK8s](https://microk8s.io/) - Lightweight Kubernetes
+- [K3s](https://k3s.io/) - Lightweight Kubernetes by Rancher
+- [Rancher Desktop](https://rancherdesktop.io/) - Desktop Kubernetes
+
+**Use this automation when you need:** Multi-node clusters on existing OpenStack infrastructure
+
+---
+
 ## 🌐 Network Architecture
 
 ### Network Subnets Overview
