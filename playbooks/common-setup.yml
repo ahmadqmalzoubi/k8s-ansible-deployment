@@ -110,11 +110,16 @@
             path: /etc/containerd/config.toml
           register: containerd_config_stat
 
-        - name: Generate default containerd configuration (capture)
-          shell: containerd config default | sudo tee /etc/containerd/config.toml >/dev/null 2>&1
+        - name: Generate default containerd config (always overwrite)
+          shell: |
+            mkdir -p /etc/containerd
+            containerd config default > /etc/containerd/config.toml
 
-        - name: Ensure SystemdCgroup = true (toggle if set to false)
-          shell: sudo sed -i 's/SystemdCgroup \= false/SystemdCgroup \= true/g' /etc/containerd/config.toml
+        - name: Enable SystemdCgroup in containerd config
+          replace:
+            path: /etc/containerd/config.toml
+            regexp: 'SystemdCgroup\s*=\s*false'
+            replace: 'SystemdCgroup = true'
 
         - name: Restart and enable containerd
           systemd:

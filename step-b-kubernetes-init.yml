@@ -121,12 +121,10 @@
             state: present
             update_cache: yes
 
-        - name: Configure containerd
+        - name: Generate default containerd config (always overwrite)
           shell: |
             mkdir -p /etc/containerd
-            containerd config default | tee /etc/containerd/config.toml >/dev/null
-          args:
-            creates: /etc/containerd/config.toml
+            containerd config default > /etc/containerd/config.toml
 
         - name: Enable SystemdCgroup in containerd config
           replace:
