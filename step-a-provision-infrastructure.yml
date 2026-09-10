@@ -8,6 +8,11 @@
   vars:
     script_dir: "{{ playbook_dir }}/scripts"
     terraform_dir: "{{ playbook_dir }}/terraform"
+    # Route to the OpenStack floating IP network, via the AIO host.
+    # Override these if your lab topology differs from the default.
+    floating_ip_cidr: "172.29.248.0/22"
+    openstack_host_ip: "172.16.1.4"
+    openstack_host_iface: "enp1s0"
     
   tasks:
     - name: Display Step A banner
@@ -104,14 +109,14 @@
         msg: "✅ SSH private key ready: {{ playbook_dir }}/config/k8s-cluster-key.pem"
 
     - name: Check if route to floating IP network exists
-      shell: ip route | grep "172.29.248.0/22"
+      shell: ip route | grep "{{ floating_ip_cidr }}"
       register: route_check
       failed_when: false
       changed_when: false
 
     - name: Add route to floating IP network (if needed)
       become: yes
-      command: ip route add 172.29.248.0/22 via 172.16.1.4 dev enp1s0
+      command: ip route add {{ floating_ip_cidr }} via {{ openstack_host_ip }} dev {{ openstack_host_iface }}
       when: route_check.rc != 0
       register: route_add
       failed_when: false

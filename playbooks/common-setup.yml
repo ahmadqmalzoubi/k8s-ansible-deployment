@@ -1,4 +1,18 @@
 ---
+# common-setup.yml — Standalone playbook for common Kubernetes node setup.
+#
+# This playbook performs the same tasks as Phase 1 of step-b-kubernetes-init.yml
+# (swap disable, kernel modules, containerd, /etc/hosts, kubeadm/kubelet/kubectl)
+# but can be run independently against an existing static inventory, without the
+# Terraform provisioning step.
+#
+# Usage:
+#   ansible-playbook -i <your-inventory> playbooks/common-setup.yml
+#
+# Note: This playbook is NOT imported by the main step-*.yml workflow.
+#       It is provided as a convenience for environments where VMs are
+#       pre-provisioned (e.g. bare-metal or non-OpenStack setups).
+
 - name: Common Kubernetes Setup for All Nodes
   hosts: all
   become: yes

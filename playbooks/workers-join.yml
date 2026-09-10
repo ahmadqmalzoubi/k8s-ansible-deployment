@@ -5,14 +5,14 @@
   tasks:
     - name: Obtain join command from master (file or generate)
       shell: cat /tmp/k8s-join-command || kubeadm token create --print-join-command
-      delegate_to: k8s-master
+      delegate_to: "{{ groups['k8s_master'][0] }}"
       register: join_cmd
       run_once: true
 
     - name: Store join command as fact on master for global access
       set_fact:
         k8s_join_command: "{{ join_cmd.stdout | trim }}"
-      delegate_to: k8s-master
+      delegate_to: "{{ groups['k8s_master'][0] }}"
       delegate_facts: true
       run_once: true
 
@@ -22,7 +22,7 @@
       register: kubelet_conf
 
     - name: Join worker node to cluster
-      command: "{{ hostvars['k8s-master'].k8s_join_command }}"
+      command: "{{ hostvars[groups['k8s_master'][0]].k8s_join_command }}"
       when: not kubelet_conf.stat.exists
       register: join_result
 

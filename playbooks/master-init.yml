@@ -4,6 +4,7 @@
   become: yes
   vars:
     kubeconfig_path: "/home/{{ ansible_user }}/.kube/config"
+    kubernetes_version: "v1.33"
   tasks:
     - name: Generate kubeadm configuration
       template:

@@ -82,7 +82,7 @@ deploy_cluster() {
     cd "$SCRIPT_DIR"
     
     # Run the full stack deployment
-    if ansible-playbook deploy-full-stack.yml; then
+    if ./deploy-complete.sh; then
         log_success "Cluster deployment completed successfully!"
         show_status
     else

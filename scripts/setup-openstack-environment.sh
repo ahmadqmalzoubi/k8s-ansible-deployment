@@ -12,6 +12,16 @@ echo "OpenStack Environment Setup"
 echo "=========================================="
 echo ""
 
+# Prompt for the admin password — never hardcode credentials in version control
+if [ -z "${LEARNING_ADMIN_PASSWORD:-}" ]; then
+    read -sp "Enter password for 'learning-admin' user: " LEARNING_ADMIN_PASSWORD
+    echo ""
+    if [ -z "$LEARNING_ADMIN_PASSWORD" ]; then
+        echo "ERROR: Password cannot be empty."
+        exit 1
+    fi
+fi
+
 # Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -31,7 +41,7 @@ echo -e "${BLUE}[INFO]${NC} Creating user 'learning-admin' in learning domain...
 openstack user create learning-admin \
   --domain learning \
   --project learning-project \
-  --password DomainAdmin123! \
+  --password "$LEARNING_ADMIN_PASSWORD" \
   --insecure || echo "User may already exist"
 
 echo -e "${BLUE}[INFO]${NC} Assigning admin role to learning-admin..."
@@ -66,11 +76,11 @@ fi
 
 echo -e "${BLUE}[INFO]${NC} Uploading image to Glance as learning-admin..."
 # Switch to learning-admin credentials
-cat > ~/openrc-learning-admin << 'EOF'
+cat > ~/openrc-learning-admin << EOF
 export OS_AUTH_URL=https://172.16.1.4:5000/v3
 export OS_PROJECT_NAME=learning-project
 export OS_USERNAME=learning-admin
-export OS_PASSWORD=DomainAdmin123!
+export OS_PASSWORD=${LEARNING_ADMIN_PASSWORD}
 export OS_USER_DOMAIN_NAME=learning
 export OS_PROJECT_DOMAIN_NAME=learning
 export OS_IDENTITY_API_VERSION=3
@@ -147,7 +157,7 @@ echo "==========================================${NC}"
 echo ""
 echo "Domain: learning"
 echo "Project: learning-project"
-echo "User: learning-admin / DomainAdmin123!"
+echo "User: learning-admin / (password you entered)"
 echo "Network: public (172.29.248.0/22)"
 echo "Image: ubuntu-noble"
 echo "Flavor: my-large (2vCPU, 4GB RAM, 8GB disk)"

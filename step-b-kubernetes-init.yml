@@ -32,6 +32,8 @@
   hosts: all
   become: yes
   gather_facts: yes
+  vars:
+    kubernetes_version: "v1.33"
   tasks:
     - name: Display phase message
       debug:
@@ -123,7 +125,14 @@
           shell: |
             mkdir -p /etc/containerd
             containerd config default | tee /etc/containerd/config.toml >/dev/null
-            sed -i 's/SystemdCgroup \= false/SystemdCgroup \= true/g' /etc/containerd/config.toml
+          args:
+            creates: /etc/containerd/config.toml
+
+        - name: Enable SystemdCgroup in containerd config
+          replace:
+            path: /etc/containerd/config.toml
+            regexp: 'SystemdCgroup\s*=\s*false'
+            replace: 'SystemdCgroup = true'
 
         - name: Restart containerd
           systemd:
@@ -196,6 +205,24 @@
 
 # Phase 3: Install Cilium
 - import_playbook: playbooks/install-cilium.yml
+
+# Phase 3 gate: Wait for CoreDNS to be ready after CNI is installed
+- name: Wait for CoreDNS after Cilium installation
+  hosts: k8s_master
+  become: yes
+  tasks:
+    - name: Wait for CoreDNS deployment rollout to complete
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      command:
+        argv:
+          - kubectl
+          - -n
+          - kube-system
+          - rollout
+          - status
+          - deploy/coredns
+          - --timeout=5m
 
 # Final checks
 - name: Step B Completion Checks
