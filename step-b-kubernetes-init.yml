@@ -33,7 +33,7 @@
   become: yes
   gather_facts: yes
   vars:
-    kubernetes_version: "v1.33"
+    kubernetes_version: "stable"
   tasks:
     - name: Display phase message
       debug:
